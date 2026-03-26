@@ -1,0 +1,47 @@
+name: OSS Issue Watcher
+
+on:
+  schedule:
+    # Runs every 2 hours
+    - cron: '0 */2 * * *'
+  workflow_dispatch: # Manual trigger for testing
+
+jobs:
+  check-issues:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Load cached seen issues
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: seen_issues.json
+          key: seen-issues-${{ github.run_id }}
+          restore-keys: |
+            seen-issues-
+
+      - name: Run issue checker
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        run: python check_issues.py
+
+      - name: Save seen issues
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seen-issues
+          path: seen_issues.json
+          retention-days: 90
