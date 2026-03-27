@@ -89,8 +89,6 @@ def send_email(subject, html_body):
     sender = os.environ.get("SMTP_USERNAME")
     password = os.environ.get("SMTP_PASSWORD")
     recipient = os.environ.get("NOTIFY_EMAIL")
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
 
     if not all([sender, password, recipient]):
         print("ERROR: Missing email configuration. Set SMTP_USERNAME, SMTP_PASSWORD, NOTIFY_EMAIL.")
@@ -103,7 +101,7 @@ def send_email(subject, html_body):
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(sender, password)
             server.sendmail(sender, recipient, msg.as_string())
