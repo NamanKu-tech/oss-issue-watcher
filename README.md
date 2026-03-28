@@ -1,108 +1,92 @@
-# 🔔 OSS Issue Watcher
+# OSS Issue Watcher
 
 Get email notifications when new beginner-friendly issues are opened on open source projects you want to contribute to.
 
-## Currently Watching
+## Currently Watching (50 repos)
 
-| Repo | Labels |
-|------|--------|
-| spring-projects/spring-boot | `status: first-timers-only`, `status: ideal-for-contribution` |
-| spring-projects/spring-kafka | `status: ideal-for-contribution` |
-| kafbat/kafka-ui | `good first issue` |
-| testcontainers/testcontainers-java | `good first issue` |
-| keycloak/keycloak | `good first issue` |
-| debezium/debezium | `good first issue` |
-| quarkusio/quarkus | `good first issue` |
+| Category | Repo |
+|----------|------|
+| **Spring** | spring-projects/spring-boot · spring-projects/spring-kafka |
+| **Kafka / Messaging** | kafbat/kafka-ui · tchiotludo/akhq · apache/dubbo |
+| **Testing** | testcontainers/testcontainers-java |
+| **Auth / Identity** | keycloak/keycloak · JanssenProject/jans |
+| **CDC / Streaming** | debezium/debezium · seata/seata |
+| **Cloud Native** | quarkusio/quarkus · kestra-io/kestra · line/armeria · camunda/camunda · alibaba/nacos · alibaba/Sentinel |
+| **Search / Databases** | elastic/elasticsearch · opensearch-project/OpenSearch · questdb/questdb · dbeaver/dbeaver · apache/doris · apache/shardingsphere · crate/crate · hazelcast/hazelcast · vespa-engine/vespa · Graylog2/graylog2-server |
+| **Observability** | apache/skywalking |
+| **Static Analysis** | spotbugs/spotbugs · find-sec-bugs/find-sec-bugs · pmd/pmd · zaproxy/zaproxy |
+| **Build / Dev Tools** | bazelbuild/bazel · GoogleContainerTools/jib · oracle/opengrok · typetools/checker-framework |
+| **Libraries** | eclipse/eclipse-collections · graphhopper/graphhopper · allure-framework/allure2 |
+| **JVM / Platform** | eclipse/openj9 · Sable/soot |
+| **Data / Research** | google/data-transfer-project · OpenRefine/OpenRefine · JabRef/jabref |
+| **Android / Mobile** | AntennaPod/AntennaPod · TeamNewPipe/NewPipe · facebook/fresco |
+| **Other** | bisq-network/bisq · MovingBlocks/Terasology · UniversalMediaServer/UniversalMediaServer · crossoverJie/cim · SasanLabs/VulnerableApp |
 
-## Setup (One-Time, ~10 Minutes)
+## Setup (~10 minutes)
 
-### Step 1: Create Your Repo
+### 1. Create Your Repo
 
-1. Go to [github.com/new](https://github.com/new)
-2. Name it `oss-issue-watcher`
-3. Make it **Public** (GitHub Actions free minutes are unlimited for public repos)
-4. Push the files from this project to the repo
+Fork or clone this project and push it to a **public** GitHub repo (public = unlimited free Actions minutes).
 
-### Step 2: Create a Gmail App Password
+### 2. Gmail App Password
 
-You need an App Password (NOT your regular Gmail password):
+1. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2FA enabled)
+2. Create an app named `OSS Issue Watcher`
+3. Copy the 16-character password
 
-1. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-2. You may need to enable 2-Factor Authentication first
-3. App name: `OSS Issue Watcher`
-4. Click **Create**
-5. Copy the 16-character password (e.g., `abcd efgh ijkl mnop`)
+### 3. GitHub Personal Access Token
 
-### Step 3: Create a GitHub Personal Access Token
+1. Go to [github.com/settings/tokens](https://github.com/settings/tokens) → **Generate new token (classic)**
+2. Name: `oss-issue-watcher`, scope: **`public_repo`** only
+3. Copy the token
 
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
-2. Click **Generate new token (classic)**
-3. Name: `oss-issue-watcher`
-4. Expiration: 90 days (set a reminder to renew)
-5. Scopes: check **`public_repo`** only
-6. Click **Generate token**
-7. Copy the token
+### 4. Add Secrets
 
-### Step 4: Add Secrets to Your Repo
+Go to your repo → **Settings → Secrets and variables → Actions** and add:
 
-Go to your repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+| Secret | Value |
+|--------|-------|
+| `GH_TOKEN` | GitHub token from step 3 |
+| `SMTP_USERNAME` | Your Gmail address |
+| `SMTP_PASSWORD` | App password from step 2 |
+| `NOTIFY_EMAIL` | Where to send notifications |
 
-Add these 4 secrets:
+### 5. Test It
 
-| Secret Name | Value |
-|---|---|
-| `GH_TOKEN` | Your GitHub personal access token from Step 3 |
-| `SMTP_USERNAME` | Your Gmail address (e.g., `mukulghare9@gmail.com`) |
-| `SMTP_PASSWORD` | The 16-char App Password from Step 2 |
-| `NOTIFY_EMAIL` | Email where you want notifications (can be same as above) |
-
-Optionally, if not using Gmail:
-
-| Secret Name | Value |
-|---|---|
-| `SMTP_HOST` | SMTP server (default: `smtp.gmail.com`) |
-| `SMTP_PORT` | SMTP port (default: `587`) |
-
-### Step 5: Test It
-
-1. Go to your repo → **Actions** tab
-2. Click **OSS Issue Watcher** on the left
-3. Click **Run workflow** → **Run workflow**
-4. Wait ~30 seconds, check your email
+Go to **Actions → OSS Issue Watcher → Run workflow** and check your email after ~30 seconds.
 
 ## How It Works
 
-- GitHub Actions runs `check_issues.py` **every 2 hours**
-- The script checks all watched repos via GitHub API for issues with the specified labels
-- It tracks which issues it has already seen (in `seen_issues.json` via Actions cache)
-- If new issues are found → sends you a formatted HTML email
-- If no new issues → does nothing (no spam)
+- Runs every 4 hours via GitHub Actions
+- Checks each repo for new issues with the configured labels
+- Tracks seen issues so you only get notified once per issue
+- Sends a formatted HTML email only when new issues are found
 
 ## Add More Repos
 
-Edit `check_issues.py` and add to the `WATCHED_REPOS` list:
+Edit `check_issues.py` and add to `WATCHED_REPOS`:
 
 ```python
 {
     "owner": "apache",
     "repo": "kafka",
-    "labels": ["newbie", "good first issue"],
+    "labels": ["good first issue"],
 },
 ```
 
 ## FAQ
 
-**Q: Will I get spammed?**
-No. You only get an email when NEW issues appear. Existing issues are tracked and skipped.
+**Will I get spammed?**
+No — you only get an email when new issues appear. Already-seen issues are tracked and skipped.
 
-**Q: Is this free?**
+**Is this free?**
 Yes. GitHub Actions is free for public repos. Gmail SMTP is free.
 
-**Q: The cron stopped running?**
-GitHub disables Actions if no repo activity for 60 days. Just push a commit or manually trigger the workflow to re-enable.
+**The workflow stopped running?**
+GitHub disables Actions after 60 days of no repo activity. Push a commit or trigger the workflow manually to re-enable.
 
-**Q: How do I change the frequency?**
-Edit the cron in `.github/workflows/watch-issues.yml`:
+**How do I change the frequency?**
+Edit the cron in `.github/workflows/watch-issues.yml`. Examples:
 - Every hour: `'0 * * * *'`
-- Every 2 hours: `'0 */2 * * *'` (default)
+- Every 4 hours: `'0 */4 * * *'` (default)
 - Every 6 hours: `'0 */6 * * *'`
