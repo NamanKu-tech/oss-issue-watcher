@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 
 # ─── CONFIGURE YOUR WATCHED REPOS HERE ───
 WATCHED_REPOS = [
+    # ── Spring Ecosystem ──────────────────────────────────────────────────────
     {
         "owner": "spring-projects",
         "repo": "spring-boot",
@@ -18,31 +19,265 @@ WATCHED_REPOS = [
     {
         "owner": "spring-projects",
         "repo": "spring-kafka",
-        "labels": ["status: ideal-for-contribution"],
+        "labels": ["status: ideal-for-user-contribution"],
     },
+    # ── Kafka / Messaging ─────────────────────────────────────────────────────
     {
         "owner": "kafbat",
         "repo": "kafka-ui",
         "labels": ["good first issue"],
     },
     {
+        "owner": "tchiotludo",
+        "repo": "akhq",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "apache",
+        "repo": "dubbo",
+        "labels": ["good first issue"],
+    },
+    # ── Testing ───────────────────────────────────────────────────────────────
+    {
         "owner": "testcontainers",
         "repo": "testcontainers-java",
         "labels": ["good first issue"],
     },
+    # ── Auth / Identity ───────────────────────────────────────────────────────
     {
         "owner": "keycloak",
         "repo": "keycloak",
         "labels": ["good first issue"],
     },
     {
+        "owner": "JanssenProject",
+        "repo": "jans",
+        "labels": ["good first issue"],
+    },
+    # ── Change Data Capture / Streaming ───────────────────────────────────────
+    {
         "owner": "debezium",
         "repo": "debezium",
         "labels": ["good first issue"],
     },
     {
+        "owner": "seata",
+        "repo": "seata",
+        "labels": ["first-time contributor","good first issue"],
+    },
+    # ── Cloud Native / Microservices ──────────────────────────────────────────
+    {
         "owner": "quarkusio",
         "repo": "quarkus",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "kestra-io",
+        "repo": "kestra",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "line",
+        "repo": "armeria",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "camunda",
+        "repo": "camunda",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "alibaba",
+        "repo": "nacos",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "alibaba",
+        "repo": "Sentinel",
+        "labels": ["good first issue"],
+    },
+    # ── Search / Databases ────────────────────────────────────────────────────
+    {
+        "owner": "elastic",
+        "repo": "elasticsearch",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "opensearch-project",
+        "repo": "OpenSearch",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "questdb",
+        "repo": "questdb",
+        "labels": ["Good first issue"],
+    },
+    {
+        "owner": "dbeaver",
+        "repo": "dbeaver",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "apache",
+        "repo": "doris",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "apache",
+        "repo": "shardingsphere",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "crate",
+        "repo": "crate",
+        "labels": ["contributions welcome"],
+    },
+    {
+        "owner": "hazelcast",
+        "repo": "hazelcast",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "vespa-engine",
+        "repo": "vespa",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "Graylog2",
+        "repo": "graylog2-server",
+        "labels": ["good first issue"],
+    },
+    # ── Observability / APM ───────────────────────────────────────────────────
+    {
+        "owner": "apache",
+        "repo": "skywalking",
+        "labels": ["good first issue"],
+    },
+    # ── Static Analysis / Code Quality ───────────────────────────────────────
+    {
+        "owner": "spotbugs",
+        "repo": "spotbugs",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "find-sec-bugs",
+        "repo": "find-sec-bugs",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "pmd",
+        "repo": "pmd",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "zaproxy",
+        "repo": "zaproxy",
+        "labels": ["good first issue"],
+    },
+    # ── Build Tools / Dev Tools ───────────────────────────────────────────────
+    {
+        "owner": "bazelbuild",
+        "repo": "bazel",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "GoogleContainerTools",
+        "repo": "jib",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "oracle",
+        "repo": "opengrok",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "typetools",
+        "repo": "checker-framework",
+        "labels": ["good first issue"],
+    },
+    # ── Collections / Libraries ───────────────────────────────────────────────
+    {
+        "owner": "eclipse",
+        "repo": "eclipse-collections",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "graphhopper",
+        "repo": "graphhopper",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "allure-framework",
+        "repo": "allure2",
+        "labels": ["good first issue"],
+    },
+    # ── JVM / Platform ────────────────────────────────────────────────────────
+    {
+        "owner": "eclipse",
+        "repo": "openj9",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "Sable",
+        "repo": "soot",
+        "labels": ["good first issue"],
+    },
+    # ── Data / Research Tools ─────────────────────────────────────────────────
+    {
+        "owner": "google",
+        "repo": "data-transfer-project",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "OpenRefine",
+        "repo": "OpenRefine",
+        "labels": ["Good First Issue"],
+    },
+    {
+        "owner": "JabRef",
+        "repo": "jabref",
+        "labels": ["good first issue"],
+    },
+    # ── Android / Mobile ─────────────────────────────────────────────────────
+    {
+        "owner": "AntennaPod",
+        "repo": "AntennaPod",
+        "labels": ["Good first issue"],
+    },
+    {
+        "owner": "TeamNewPipe",
+        "repo": "NewPipe",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "facebook",
+        "repo": "fresco",
+        "labels": ["good first issue"],
+    },
+    # ── Other ─────────────────────────────────────────────────────────────────
+    {
+        "owner": "bisq-network",
+        "repo": "bisq",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "MovingBlocks",
+        "repo": "Terasology",
+        "labels": ["Good First Issue"],
+    },
+    {
+        "owner": "UniversalMediaServer",
+        "repo": "UniversalMediaServer",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "crossoverJie",
+        "repo": "cim",
+        "labels": ["good first issue"],
+    },
+    {
+        "owner": "SasanLabs",
+        "repo": "VulnerableApp",
         "labels": ["good first issue"],
     },
 ]

@@ -2,8 +2,8 @@ name: OSS Issue Watcher
 
 on:
   schedule:
-    # Runs every 2 hours
-    - cron: '0 */2 * * *'
+    # Runs every 4 hours
+    - cron: '0 */4 * * *'
   workflow_dispatch: # Manual trigger for testing
 
 jobs:
