@@ -2,7 +2,6 @@ __pycache__/
 *.pyc
 seen_issues.json
 .env
-
-.claude
+CLAUDE.md
 
 
