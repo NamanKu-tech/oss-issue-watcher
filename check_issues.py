@@ -6,6 +6,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
+from urllib.parse import quote
 
 with open(os.path.join(os.path.dirname(__file__), "repos.json")) as _f:
     WATCHED_REPOS = json.load(_f)
@@ -15,7 +16,7 @@ def fetch_issues(owner, repo, label, token=None):
     """Fetch open issues with a specific label from GitHub API."""
     url = (
         f"https://api.github.com/repos/{owner}/{repo}/issues"
-        f"?labels={label.replace(' ', '+')}&state=open&sort=created&direction=desc&per_page=20"
+        f"?labels={quote(label, safe='')}&state=open&sort=created&direction=desc&per_page=20"
     )
     headers = {
         "Accept": "application/vnd.github+json",
