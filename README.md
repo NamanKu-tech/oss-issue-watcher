@@ -33,7 +33,7 @@ Issues are tagged 1–10 based on the label used:
 
 ---
 
-## Currently Watching (90+ repos)
+## Currently Watching (110+ repos)
 
 | Category | Repos |
 | --- | --- |
@@ -44,11 +44,13 @@ Issues are tagged 1–10 based on the label used:
 | **Auth / Identity** | keycloak · JanssenProject/jans |
 | **Cloud Native / Microservices** | quarkus · micronaut-core · helidon · vert.x · netty · ktor · armeria · kestra · dropwizard · grpc-java |
 | **API / Integration** | openapi-generator · mapstruct · OpenMetadata |
-| **Databases** | elasticsearch · OpenSearch · questdb · dbeaver · apache/doris · shardingsphere · crate · hazelcast · vespa · lettuce · liquibase · flyway |
-| **SRE / Observability** | grafana · loki · tempo · prometheus · alertmanager · jaeger · opentelemetry-collector · opentelemetry-java · skywalking · micrometer · thanos · VictoriaMetrics · graylog2-server |
-| **Kubernetes / Infra** | kubernetes · ingress-nginx · cilium · cortex · argo-workflows · argo-cd · istio · helm · terraform |
-| **Build / Dev Tools** | gradle · bazel · jib · opengrok · checker-framework · spotbugs · pmd |
+| **Databases** | elasticsearch · OpenSearch · questdb · dbeaver · apache/doris · shardingsphere · crate · hazelcast · vespa · lettuce · liquibase · flyway · etcd |
+| **SRE / Observability** | grafana · loki · tempo · prometheus · alertmanager · jaeger · opentelemetry-collector · opentelemetry-java · opentelemetry-go · skywalking · micrometer · thanos · VictoriaMetrics · graylog2-server · telegraf · vector |
+| **Kubernetes / Infra** | kubernetes · ingress-nginx · cilium · cortex · argo-workflows · argo-cd · istio · helm · terraform · traefik · flux2 · linkerd2 · moby · podman |
+| **Build / Dev Tools** | gradle · bazel · jib · opengrok · checker-framework · spotbugs · pmd · cargo |
 | **Security** | zaproxy · find-sec-bugs · keycloak · VulnerableApp |
+| **Go** | cli/cli · moby · podman · gitea · traefik · etcd · opentelemetry-go · grpc-go · gin · telegraf · flux2 · linkerd2 |
+| **Rust** | tokio · clap · cargo · nushell · vector · firecracker · actix-web · linkerd2 |
 | **Frontend / Other** | react · next.js · nest · fastapi · flask · AntennaPod · NewPipe |
 
 ---
@@ -222,15 +224,31 @@ rm -f seen_issues.json && python check_issues.py
 
 ---
 
-## Add / Remove Repos
+## Adding More Repos
 
-Edit [`repos.json`](repos.json). Each entry:
+Edit [`repos.json`](repos.json) and add an entry anywhere in the array:
 
 ```json
-{ "owner": "apache", "repo": "kafka", "labels": ["good first issue", "help wanted"], "areas": ["Java", "Messaging"] }
+{ "owner": "OWNER", "repo": "REPO", "labels": ["good first issue", "help wanted"], "areas": ["Go", "Backend"] }
 ```
 
-The `areas` field controls which users receive issues from that repo (based on their `areas` preference).
+**Fields:**
+
+- `owner` — GitHub org or username (e.g. `"golang"`)
+- `repo` — repo name exactly as it appears on GitHub (e.g. `"go"`)
+- `labels` — one API call is made per label, so list every label the repo uses for beginner issues. Check the repo's Labels page on GitHub to find the exact text.
+- `areas` — controls which users receive issues from this repo. Must match values in a user's `areas` list in `USER_CONFIGS`. Use existing areas or invent new ones — just make sure to add the same value to the relevant user configs too.
+
+**Finding the right labels for a repo:**
+Go to `github.com/OWNER/REPO/labels` and look for anything like `good first issue`, `help wanted`, `up for grabs`, `beginner`, `starter`, etc. Copy the label text exactly — casing matters.
+
+**Example — adding golang/go:**
+
+```json
+{ "owner": "golang", "repo": "go", "labels": ["good first issue", "help wanted"], "areas": ["Go", "Backend"] }
+```
+
+Commit the change and push — the next workflow run picks it up automatically.
 
 ---
 
