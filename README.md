@@ -163,6 +163,8 @@ Add more objects to the array for more recipients — each gets a filtered email
 | `Python` | fastapi, flask |
 | `Mobile` | AntennaPod, NewPipe |
 | `Android` | AntennaPod, NewPipe |
+| `Go` | cli/cli, moby, podman, gitea, traefik, etcd, opentelemetry-go, grpc-go, gin, telegraf, flux2, linkerd2 |
+| `Rust` | tokio, clap, cargo, nushell, vector, firecracker, actix-web, linkerd2 |
 
 > **Tip:** Set `difficulty_min` and `difficulty_max` to the same number for an exact level only (e.g. both `4` = only `help wanted` issues). Set a range like `1–7` to get everything up to that difficulty.
 

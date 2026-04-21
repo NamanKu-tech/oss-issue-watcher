@@ -93,5 +93,26 @@
   { "owner": "vercel",             "repo": "next.js",                 "labels": ["good first issue"],                                             "areas": ["Frontend", "JavaScript"] },
   { "owner": "nestjs",             "repo": "nest",                    "labels": ["good first issue 👍"],                                          "areas": ["Backend", "JavaScript"] },
   { "owner": "fastapi",            "repo": "fastapi",                 "labels": ["good first issue"],                                             "areas": ["Backend", "Python"] },
-  { "owner": "pallets",            "repo": "flask",                   "labels": ["good first issue"],                                             "areas": ["Backend", "Python"] }
+  { "owner": "pallets",            "repo": "flask",                   "labels": ["good first issue"],                                             "areas": ["Backend", "Python"] },
+
+  { "owner": "cli",                "repo": "cli",                     "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Tools"] },
+  { "owner": "moby",               "repo": "moby",                    "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Kubernetes", "Backend"] },
+  { "owner": "containers",         "repo": "podman",                  "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Kubernetes", "Backend"] },
+  { "owner": "go-gitea",           "repo": "gitea",                   "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Backend"] },
+  { "owner": "traefik",            "repo": "traefik",                 "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "SRE", "Kubernetes"] },
+  { "owner": "etcd-io",            "repo": "etcd",                    "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "SRE", "Databases"] },
+  { "owner": "open-telemetry",     "repo": "opentelemetry-go",        "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Observability", "SRE"] },
+  { "owner": "grpc",               "repo": "grpc-go",                 "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Backend"] },
+  { "owner": "gin-gonic",          "repo": "gin",                     "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Backend"] },
+  { "owner": "influxdata",         "repo": "telegraf",                "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "SRE", "Observability"] },
+  { "owner": "fluxcd",             "repo": "flux2",                   "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "SRE", "Kubernetes"] },
+  { "owner": "linkerd",            "repo": "linkerd2",                "labels": ["good first issue", "help wanted"],                              "areas": ["Go", "Rust", "SRE", "Kubernetes"] },
+
+  { "owner": "tokio-rs",           "repo": "tokio",                   "labels": ["good first issue", "help wanted"],                              "areas": ["Rust", "Backend"] },
+  { "owner": "clap-rs",            "repo": "clap",                    "labels": ["good first issue", "help wanted"],                              "areas": ["Rust", "Tools"] },
+  { "owner": "rust-lang",          "repo": "cargo",                   "labels": ["good first issue", "help wanted"],                              "areas": ["Rust", "Build"] },
+  { "owner": "nushell",            "repo": "nushell",                 "labels": ["good first issue", "help wanted"],                              "areas": ["Rust", "Tools"] },
+  { "owner": "vectordotdev",       "repo": "vector",                  "labels": ["good first issue", "help wanted"],                              "areas": ["Rust", "SRE", "Observability"] },
+  { "owner": "firecracker-microvm","repo": "firecracker",             "labels": ["good first issue", "help wanted"],                              "areas": ["Rust", "Backend"] },
+  { "owner": "actix",              "repo": "actix-web",               "labels": ["good first issue", "help wanted"],                              "areas": ["Rust", "Backend"] }
 ]
