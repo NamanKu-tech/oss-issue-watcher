@@ -154,13 +154,12 @@ def get_label_difficulty(labels):
 
 AI_BATCH_SIZE = 80
 
-# Provider detection order: Vertex AI → Gemini AI Studio → OpenAI → Anthropic
+# Provider detection order: Gemini AI Studio → OpenAI → Anthropic
 # Set AI_MODEL secret to override the default model for whichever provider is active.
 _PROVIDER_DEFAULTS = {
-    "vertex":    "gemini-2.5-pro",     # GCP service account — uses billing credits
-    "gemini":    "gemini-2.0-flash",   # AI Studio API key — free tier
-    "openai":    "gpt-4o-mini",        # OpenAI API key — free trial or paid
-    "anthropic": "claude-haiku-4-5-20251001",  # Anthropic API key — free trial or paid
+    "gemini":    "gemini-2.0-flash",          # Google AI Studio API key — free tier default
+    "openai":    "gpt-4o-mini",               # OpenAI API key
+    "anthropic": "claude-haiku-4-5-20251001", # Anthropic API key
 }
 
 
@@ -168,41 +167,26 @@ def _detect_ai_provider():
     """Return (provider, auth, model) from available secrets, or (None, None, None)."""
     model_override = os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or ""
 
-    sa_json = os.environ.get("GOOGLE_SA_JSON", "")
-    if sa_json:
-        model = model_override or _PROVIDER_DEFAULTS["vertex"]
-        try:
-            from google.oauth2 import service_account
-            import google.auth.transport.requests as ga_requests
-            sa_info = json.loads(sa_json)
-            creds = service_account.Credentials.from_service_account_info(
-                sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            creds.refresh(ga_requests.Request())
-            return "vertex", creds.token, model, sa_info.get("project_id")
-        except Exception as e:
-            gha_error(f"Vertex AI token failed: {e} — falling back to next provider")
-
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     if gemini_key:
         model = model_override or _PROVIDER_DEFAULTS["gemini"]
-        return "gemini", gemini_key, model, None
+        return "gemini", gemini_key, model
 
     openai_key = os.environ.get("OPENAI_API_KEY", "")
     if openai_key:
         model = model_override or _PROVIDER_DEFAULTS["openai"]
-        return "openai", openai_key, model, None
+        return "openai", openai_key, model
 
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if anthropic_key:
         model = model_override or _PROVIDER_DEFAULTS["anthropic"]
-        return "anthropic", anthropic_key, model, None
+        return "anthropic", anthropic_key, model
 
-    return None, None, None, None
+    return None, None, None
 
 
 def _build_payload(provider, model, prompt):
-    if provider in ("vertex", "gemini"):
+    if provider == "gemini":
         return json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 65536},
@@ -223,15 +207,9 @@ def _build_payload(provider, model, prompt):
     raise ValueError(f"Unknown provider: {provider}")
 
 
-def _build_request(provider, auth, model, payload, project_id=None):
+def _build_request(provider, auth, model, payload):
     headers = {"Content-Type": "application/json"}
-    if provider == "vertex":
-        url = (
-            f"https://aiplatform.googleapis.com/v1/projects/{project_id}/"
-            f"locations/global/publishers/google/models/{model}:generateContent"
-        )
-        headers["Authorization"] = f"Bearer {auth}"
-    elif provider == "gemini":
+    if provider == "gemini":
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model}:generateContent?key={auth}"
@@ -249,7 +227,7 @@ def _build_request(provider, auth, model, payload, project_id=None):
 
 
 def _extract_text(provider, result):
-    if provider in ("vertex", "gemini"):
+    if provider == "gemini":
         return result["candidates"][0]["content"]["parts"][0]["text"]
     if provider == "openai":
         return result["choices"][0]["message"]["content"]
@@ -258,7 +236,7 @@ def _extract_text(provider, result):
     raise ValueError(f"Unknown provider: {provider}")
 
 
-def _call_ai(provider, auth, model, batch, project_id=None):
+def _call_ai(provider, auth, model, batch):
     """Single AI API call for one batch. Returns cleaned CSV text."""
     issues_json = json.dumps([
         {
@@ -274,7 +252,7 @@ def _call_ai(provider, auth, model, batch, project_id=None):
 
     prompt = GEMINI_PROMPT.format(issues_json=issues_json)
     payload = _build_payload(provider, model, prompt)
-    req = _build_request(provider, auth, model, payload, project_id=project_id)
+    req = _build_request(provider, auth, model, payload)
 
     try:
         with urlopen(req) as resp:
@@ -293,11 +271,11 @@ def _call_ai(provider, auth, model, batch, project_id=None):
 
 def analyze_with_ai(issues):
     """Send all new issues to the configured AI provider in batches. Returns CSV or None."""
-    provider, auth, model, project_id = _detect_ai_provider()
+    provider, auth, model = _detect_ai_provider()
 
     if provider is None:
         gha_warning(
-            "No AI provider configured — set one of: GOOGLE_SA_JSON, GEMINI_API_KEY, "
+            "No AI provider configured — set one of: GEMINI_API_KEY, "
             "OPENAI_API_KEY, or ANTHROPIC_API_KEY. Falling back to label-based scores."
         )
         return None
@@ -314,7 +292,7 @@ def analyze_with_ai(issues):
     for idx, batch in enumerate(batches):
         try:
             log.info(f"Batch {idx + 1}/{len(batches)}: sending {len(batch)} issues...")
-            csv_text = _call_ai(provider, auth, model, batch, project_id=project_id)
+            csv_text = _call_ai(provider, auth, model, batch)
             lines = [l for l in csv_text.splitlines() if l.strip()]
             if not lines:
                 gha_warning(f"Batch {idx + 1}: empty response")
