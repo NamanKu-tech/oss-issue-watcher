@@ -56,8 +56,6 @@ else:
 # Build repo → areas lookup from repos.json
 REPO_AREAS = {f"{r['owner']}/{r['repo']}": r.get("areas", []) for r in WATCHED_REPOS}
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
-
 # Maps GitHub label text → difficulty level 1-10 (from open_source_tags_scraped_difficulty)
 LABEL_DIFFICULTY = {
     # L1 — first-timer only
@@ -93,24 +91,27 @@ LABEL_DIFFICULTY = {
     "RFC": 10, "major-feature": 10, "expert-needed": 10,
 }
 
-GEMINI_PROMPT = """You are an expert open source contributor advisor helping a backend Java/SRE developer find the best issues to contribute to.
+GEMINI_PROMPT = """You are an expert open source contributor advisor helping backend Java/SRE/Go/Rust developers find the best issues to contribute to.
 
-For each GitHub issue below, provide:
-1. score (1-10): overall contribution worthiness for a backend/SRE developer
-   - 10 = perfect fit: approachable, impactful, matches Java/SRE skills, active repo
-   - 1 = poor fit: too hard, stale, or irrelevant
-   Weigh: approachability (40%), SRE/backend relevance (30%), impact/visibility (30%)
-2. what_to_do: 1-2 sentences describing concretely what code changes are needed to resolve the issue
+For each GitHub issue below, provide ALL of these fields:
+1. score (1-10): overall contribution worthiness
+   - 10 = perfect: approachable, impactful, well-scoped, active repo, matches backend/SRE/systems skills
+   - 1 = poor: too vague, stale, needs deep insider knowledge, or purely frontend
+   Weigh: approachability (35%), skill match for backend/SRE/Go/Rust dev (30%), impact/visibility (20%), repo activity (15%)
+2. what_to_do: 2-3 sentences — concrete code changes needed. Name specific files/functions/modules if you can infer them from the title and repo. What's the entry point?
+3. time_estimate: realistic effort in plain English (e.g. "2-4 hours", "1-2 days", "3-5 days")
+4. skill_tags: comma-separated list of specific skills needed (e.g. "Java, Spring MVC, JUnit", "Go, gRPC, protobuf", "Kubernetes, RBAC")
 
 Return ONLY a valid CSV — no markdown fences, no explanation, no preamble.
 Use this exact header row:
-repo,issue_number,title,url,labels,created,score,what_to_do
+repo,issue_number,title,url,labels,created,score,what_to_do,time_estimate,skill_tags
 
 Rules:
 - Wrap any field containing commas in double-quotes
 - Escape internal double-quotes by doubling them ("")
 - One row per issue, same order as input
 - score must be an integer 1-10
+- Never leave what_to_do empty — if uncertain, give your best guess based on repo + labels
 
 Issues to analyze (JSON):
 {issues_json}"""
@@ -151,11 +152,114 @@ def get_label_difficulty(labels):
     return min(difficulties) if difficulties else 4
 
 
-GEMINI_BATCH_SIZE = 80
+AI_BATCH_SIZE = 80
+
+# Provider detection order: Vertex AI → Gemini AI Studio → OpenAI → Anthropic
+# Set AI_MODEL secret to override the default model for whichever provider is active.
+_PROVIDER_DEFAULTS = {
+    "vertex":    "gemini-2.5-pro",     # GCP service account — uses billing credits
+    "gemini":    "gemini-2.0-flash",   # AI Studio API key — free tier
+    "openai":    "gpt-4o-mini",        # OpenAI API key — free trial or paid
+    "anthropic": "claude-haiku-4-5-20251001",  # Anthropic API key — free trial or paid
+}
 
 
-def _call_gemini(api_key, batch):
-    """Single Gemini API call for one batch. Returns cleaned CSV text."""
+def _detect_ai_provider():
+    """Return (provider, auth, model) from available secrets, or (None, None, None)."""
+    model_override = os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or ""
+
+    sa_json = os.environ.get("GOOGLE_SA_JSON", "")
+    if sa_json:
+        model = model_override or _PROVIDER_DEFAULTS["vertex"]
+        try:
+            from google.oauth2 import service_account
+            import google.auth.transport.requests as ga_requests
+            sa_info = json.loads(sa_json)
+            creds = service_account.Credentials.from_service_account_info(
+                sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            creds.refresh(ga_requests.Request())
+            return "vertex", creds.token, model, sa_info.get("project_id")
+        except Exception as e:
+            gha_error(f"Vertex AI token failed: {e} — falling back to next provider")
+
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        model = model_override or _PROVIDER_DEFAULTS["gemini"]
+        return "gemini", gemini_key, model, None
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        model = model_override or _PROVIDER_DEFAULTS["openai"]
+        return "openai", openai_key, model, None
+
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if anthropic_key:
+        model = model_override or _PROVIDER_DEFAULTS["anthropic"]
+        return "anthropic", anthropic_key, model, None
+
+    return None, None, None, None
+
+
+def _build_payload(provider, model, prompt):
+    if provider in ("vertex", "gemini"):
+        return json.dumps({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 65536},
+        }).encode()
+    if provider == "openai":
+        return json.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": 16384,
+        }).encode()
+    if provider == "anthropic":
+        return json.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 16384,
+        }).encode()
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def _build_request(provider, auth, model, payload, project_id=None):
+    headers = {"Content-Type": "application/json"}
+    if provider == "vertex":
+        url = (
+            f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}/"
+            f"locations/us-central1/publishers/google/models/{model}:generateContent"
+        )
+        headers["Authorization"] = f"Bearer {auth}"
+    elif provider == "gemini":
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={auth}"
+        )
+    elif provider == "openai":
+        url = "https://api.openai.com/v1/chat/completions"
+        headers["Authorization"] = f"Bearer {auth}"
+    elif provider == "anthropic":
+        url = "https://api.anthropic.com/v1/messages"
+        headers["x-api-key"] = auth
+        headers["anthropic-version"] = "2023-06-01"
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+    return Request(url, data=payload, headers=headers)
+
+
+def _extract_text(provider, result):
+    if provider in ("vertex", "gemini"):
+        return result["candidates"][0]["content"]["parts"][0]["text"]
+    if provider == "openai":
+        return result["choices"][0]["message"]["content"]
+    if provider == "anthropic":
+        return result["content"][0]["text"]
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def _call_ai(provider, auth, model, batch, project_id=None):
+    """Single AI API call for one batch. Returns cleaned CSV text."""
     issues_json = json.dumps([
         {
             "repo": i["repo"],
@@ -169,23 +273,17 @@ def _call_gemini(api_key, batch):
     ], indent=2)
 
     prompt = GEMINI_PROMPT.format(issues_json=issues_json)
-    payload = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 65536},
-    }).encode()
+    payload = _build_payload(provider, model, prompt)
+    req = _build_request(provider, auth, model, payload, project_id=project_id)
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={api_key}"
-    )
-    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
         with urlopen(req) as resp:
             result = json.loads(resp.read().decode())
     except HTTPError as e:
         body = e.read().decode(errors="replace")
-        raise RuntimeError(f"HTTP {e.code} from Gemini API: {body}") from e
-    csv_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+        raise RuntimeError(f"HTTP {e.code} from {provider} API: {body}") from e
+
+    csv_text = _extract_text(provider, result).strip()
     if csv_text.startswith("```"):
         csv_text = "\n".join(
             line for line in csv_text.splitlines() if not line.startswith("```")
@@ -193,15 +291,21 @@ def _call_gemini(api_key, batch):
     return csv_text
 
 
-def analyze_with_gemini(issues):
-    """Send all issues to Gemini in batches. Returns combined CSV string or None."""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        gha_warning("GEMINI_API_KEY not set — skipping Gemini analysis, using label-based scores only.")
+def analyze_with_ai(issues):
+    """Send all new issues to the configured AI provider in batches. Returns CSV or None."""
+    provider, auth, model, project_id = _detect_ai_provider()
+
+    if provider is None:
+        gha_warning(
+            "No AI provider configured — set one of: GOOGLE_SA_JSON, GEMINI_API_KEY, "
+            "OPENAI_API_KEY, or ANTHROPIC_API_KEY. Falling back to label-based scores."
+        )
         return None
 
-    batches = [issues[i:i + GEMINI_BATCH_SIZE] for i in range(0, len(issues), GEMINI_BATCH_SIZE)]
-    gha_group(f"Gemini Analysis — {len(issues)} issues in {len(batches)} batch(es) of {GEMINI_BATCH_SIZE} [model: {GEMINI_MODEL}]")
+    log.info(f"AI provider: {provider} | model: {model}")
+
+    batches = [issues[i:i + AI_BATCH_SIZE] for i in range(0, len(issues), AI_BATCH_SIZE)]
+    gha_group(f"AI Analysis [{provider} / {model}] — {len(issues)} issues in {len(batches)} batch(es)")
 
     header = None
     all_rows = []
@@ -210,10 +314,10 @@ def analyze_with_gemini(issues):
     for idx, batch in enumerate(batches):
         try:
             log.info(f"Batch {idx + 1}/{len(batches)}: sending {len(batch)} issues...")
-            csv_text = _call_gemini(api_key, batch)
+            csv_text = _call_ai(provider, auth, model, batch, project_id=project_id)
             lines = [l for l in csv_text.splitlines() if l.strip()]
             if not lines:
-                gha_warning(f"Batch {idx + 1}: empty response from Gemini")
+                gha_warning(f"Batch {idx + 1}: empty response")
                 failed += 1
                 continue
             rows_in_batch = len(lines) - 1
@@ -231,19 +335,19 @@ def analyze_with_gemini(issues):
     gha_endgroup()
 
     if header is None:
-        gha_error("All Gemini batches failed — falling back to label-based scores only.")
+        gha_error("All AI batches failed — falling back to label-based scores only.")
         return None
 
     if failed:
-        gha_warning(f"{failed}/{len(batches)} Gemini batches failed — those issues will use label-based scores.")
+        gha_warning(f"{failed}/{len(batches)} batches failed — those issues use label-based scores.")
 
     combined = "\n".join([header] + all_rows)
-    gha_notice(f"Gemini done: {len(all_rows)}/{len(issues)} issues scored ({failed} batch failures)")
+    gha_notice(f"AI scoring done: {len(all_rows)}/{len(issues)} issues scored ({failed} batch failures)")
     return combined
 
 
 def parse_gemini_csv(csv_text):
-    """Parse Gemini CSV into {url: {score, what_to_do}} dict."""
+    """Parse Gemini CSV into {url: {score, what_to_do, time_estimate, skill_tags}} dict."""
     result = {}
     if not csv_text:
         return result
@@ -260,6 +364,8 @@ def parse_gemini_csv(csv_text):
             result[url] = {
                 "score": score,
                 "what_to_do": row.get("what_to_do", "").strip(),
+                "time_estimate": row.get("time_estimate", "").strip(),
+                "skill_tags": row.get("skill_tags", "").strip(),
             }
     except Exception as e:
         print(f"ERROR parsing Gemini CSV: {e}")
@@ -295,7 +401,7 @@ def build_user_csv(filtered_issues, gemini_scores):
     """Build a CSV string for a user's filtered issues including Gemini summary."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["repo", "issue_number", "title", "url", "labels", "areas", "created", "score", "what_to_do"])
+    writer.writerow(["repo", "issue_number", "title", "url", "labels", "areas", "created", "score", "what_to_do", "time_estimate", "skill_tags"])
     for issue in filtered_issues:
         g = gemini_scores.get(issue["url"], {})
         writer.writerow([
@@ -308,6 +414,8 @@ def build_user_csv(filtered_issues, gemini_scores):
             issue["created"],
             g.get("score") or issue["difficulty"],
             g.get("what_to_do") or "—",
+            g.get("time_estimate") or "—",
+            g.get("skill_tags") or "—",
         ])
     return output.getvalue()
 
@@ -323,9 +431,18 @@ def build_email_html(filtered_issues, gemini_scores, user_name=None, total_found
             f'<span style="background:#0366d6;color:white;padding:2px 8px;border-radius:12px;font-size:11px;">{a}</span>'
             for a in issue.get("areas", [])
         )
-        score = gemini_scores.get(issue["url"], {}).get("score") or issue["difficulty"]
+        g = gemini_scores.get(issue["url"], {})
+        score = g.get("score") or issue["difficulty"]
         score_color = "#28a745" if score >= 7 else "#e36209" if score >= 4 else "#586069"
-        what_to_do = gemini_scores.get(issue["url"], {}).get("what_to_do", "")
+        what_to_do = g.get("what_to_do", "")
+        time_estimate = g.get("time_estimate", "")
+        skill_tags = g.get("skill_tags", "")
+        meta_parts = []
+        if time_estimate:
+            meta_parts.append(f"⏱ {time_estimate}")
+        if skill_tags:
+            meta_parts.append(f"🔧 {skill_tags}")
+        meta_line = "  ·  ".join(meta_parts)
         rows += f"""
         <tr style="border-bottom:1px solid #eee;">
             <td style="padding:12px;">
@@ -338,6 +455,7 @@ def build_email_html(filtered_issues, gemini_scores, user_name=None, total_found
                 <span style="color:#586069;font-size:12px;">{issue['repo']}</span><br>
                 <div style="margin-top:4px;">{label_badges} {area_badges}</div>
                 {"<p style='color:#444;font-size:12px;margin:6px 0 0;font-style:italic;'>" + what_to_do + "</p>" if what_to_do else ""}
+                {"<p style='color:#586069;font-size:11px;margin:4px 0 0;'>" + meta_line + "</p>" if meta_line else ""}
             </td>
             <td style="padding:12px;color:#586069;font-size:12px;white-space:nowrap;vertical-align:top;">
                 {issue['created']}
@@ -459,9 +577,9 @@ def main():
         save_seen_issues(seen)
         return
 
-    raw_csv = analyze_with_gemini(new_issues)
+    raw_csv = analyze_with_ai(new_issues)
     gemini_scores = parse_gemini_csv(raw_csv) if raw_csv else {}
-    log.info(f"Gemini scored {len(gemini_scores)}/{len(new_issues)} issues")
+    log.info(f"AI scored {len(gemini_scores)}/{len(new_issues)} issues")
 
     gha_group("Sending emails")
     email_results = []

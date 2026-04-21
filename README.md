@@ -1,13 +1,13 @@
 # OSS Issue Watcher
 
-Get **personalised email digests** of new open source issues — filtered by your difficulty range, tech areas, and capped at 5 issues — with a **Gemini AI score (1–10)** and plain-English summary of what needs to be done, attached as a CSV.
+Get **personalised email digests** of new open source issues — filtered by your difficulty range, tech areas, and capped at N issues — with a **Gemini AI score (1–10)**, plain-English summary of what to do, time estimate, and skill tags, attached as a CSV.
 
 ## How It Works
 
 1. Runs every 4 hours via GitHub Actions (free, no server)
-2. Checks 90+ repos for new issues across beginner → intermediate labels
-3. Sends the top 50 newest to Gemini — scores each 1–10 and summarises the fix
-4. For each configured user: filters by their difficulty range + tech areas, caps at `max_issues`, sends a personalised HTML email with CSV attached
+2. Checks 110+ repos for new issues across beginner → intermediate labels
+3. Sends all new issues to Gemini (`gemini-2.5-pro` by default) — scores each 1–10, summarises the fix, estimates effort, and tags required skills
+4. For each configured user: filters by their difficulty range + tech areas, sorts by score, caps at `max_issues`, sends a personalised HTML email with CSV attached
 
 ---
 
@@ -105,10 +105,19 @@ Add each of these:
 | --- | --- |
 | `SMTP_USERNAME` | The Gmail address you're sending from (e.g. `you@gmail.com`) |
 | `SMTP_PASSWORD` | The 16-char app password from step 2 |
-| `GEMINI_API_KEY` | The key from step 4 |
-| `GEMINI_MODEL` | e.g. `gemini-2.5-flash` (optional, default: `gemini-2.0-flash`) |
 | `GH_TOKEN` | The token from step 3 |
 | `NOTIFY_EMAIL` | Your receiving email — only needed if you skip step 6 below |
+
+**Set exactly one AI provider key** (checked in priority order):
+
+| Secret | Provider | Default model | Free tier? |
+| --- | --- | --- | --- |
+| `GOOGLE_SA_JSON` | Vertex AI (GCP service account JSON) | `gemini-2.5-pro` | GCP credits |
+| `GEMINI_API_KEY` | Google AI Studio | `gemini-2.0-flash` | Yes (500 req/day) |
+| `OPENAI_API_KEY` | OpenAI | `gpt-4o-mini` | $5 free trial |
+| `ANTHROPIC_API_KEY` | Anthropic / Claude | `claude-haiku-4-5-20251001` | $5 free trial |
+
+Optionally set `AI_MODEL` to override the default model for whichever provider you chose (e.g. `gemini-2.5-flash`, `gpt-4o`, `claude-sonnet-4-6`).
 
 ---
 
@@ -280,7 +289,7 @@ Edit `.github/workflows/watch-issues.yml`:
 
 ```yaml
 - cron: '0 */4 * * *'   # every 4 hours (default)
-- cron: '0 */6 * * *'   # every 6 hours
+- cron: '0 */2 * * *'   # every 2 hours
 - cron: '0 8 * * *'     # once daily at 8am UTC
 ```
 
