@@ -227,8 +227,8 @@ def _build_request(provider, auth, model, payload, project_id=None):
     headers = {"Content-Type": "application/json"}
     if provider == "vertex":
         url = (
-            f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}/"
-            f"locations/us-central1/publishers/google/models/{model}:generateContent"
+            f"https://aiplatform.googleapis.com/v1/projects/{project_id}/"
+            f"locations/global/publishers/google/models/{model}:generateContent"
         )
         headers["Authorization"] = f"Bearer {auth}"
     elif provider == "gemini":
