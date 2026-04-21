@@ -2,6 +2,7 @@ import csv
 import io
 import os
 import json
+import logging
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
@@ -11,6 +12,29 @@ from datetime import datetime, timezone
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from urllib.parse import quote
+
+logging.basicConfig(
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
+log = logging.getLogger("oss-watcher")
+
+
+def gha_group(title):
+    print(f"::group::{title}", flush=True)
+
+def gha_endgroup():
+    print("::endgroup::", flush=True)
+
+def gha_error(msg):
+    print(f"::error::{msg}", flush=True)
+
+def gha_warning(msg):
+    print(f"::warning::{msg}", flush=True)
+
+def gha_notice(msg):
+    print(f"::notice::{msg}", flush=True)
 
 with open(os.path.join(os.path.dirname(__file__), "repos.json")) as _f:
     WATCHED_REPOS = json.load(_f)
@@ -32,7 +56,7 @@ else:
 # Build repo → areas lookup from repos.json
 REPO_AREAS = {f"{r['owner']}/{r['repo']}": r.get("areas", []) for r in WATCHED_REPOS}
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
 
 # Maps GitHub label text → difficulty level 1-10 (from open_source_tags_scraped_difficulty)
 LABEL_DIFFICULTY = {
@@ -127,7 +151,7 @@ def get_label_difficulty(labels):
     return min(difficulties) if difficulties else 4
 
 
-GEMINI_BATCH_SIZE = 150
+GEMINI_BATCH_SIZE = 80
 
 
 def _call_gemini(api_key, batch):
@@ -155,8 +179,12 @@ def _call_gemini(api_key, batch):
         f"{GEMINI_MODEL}:generateContent?key={api_key}"
     )
     req = Request(url, data=payload, headers={"Content-Type": "application/json"})
-    with urlopen(req) as resp:
-        result = json.loads(resp.read().decode())
+    try:
+        with urlopen(req) as resp:
+            result = json.loads(resp.read().decode())
+    except HTTPError as e:
+        body = e.read().decode(errors="replace")
+        raise RuntimeError(f"HTTP {e.code} from Gemini API: {body}") from e
     csv_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
     if csv_text.startswith("```"):
         csv_text = "\n".join(
@@ -166,39 +194,51 @@ def _call_gemini(api_key, batch):
 
 
 def analyze_with_gemini(issues):
-    """Send all issues to Gemini in batches of 150. Returns combined CSV string or None."""
+    """Send all issues to Gemini in batches. Returns combined CSV string or None."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("GEMINI_API_KEY not set — skipping analysis.")
+        gha_warning("GEMINI_API_KEY not set — skipping Gemini analysis, using label-based scores only.")
         return None
 
     batches = [issues[i:i + GEMINI_BATCH_SIZE] for i in range(0, len(issues), GEMINI_BATCH_SIZE)]
-    print(f"Sending {len(issues)} issues to Gemini in {len(batches)} batch(es)...")
+    gha_group(f"Gemini Analysis — {len(issues)} issues in {len(batches)} batch(es) of {GEMINI_BATCH_SIZE} [model: {GEMINI_MODEL}]")
 
     header = None
     all_rows = []
+    failed = 0
 
     for idx, batch in enumerate(batches):
         try:
+            log.info(f"Batch {idx + 1}/{len(batches)}: sending {len(batch)} issues...")
             csv_text = _call_gemini(api_key, batch)
             lines = [l for l in csv_text.splitlines() if l.strip()]
             if not lines:
+                gha_warning(f"Batch {idx + 1}: empty response from Gemini")
+                failed += 1
                 continue
+            rows_in_batch = len(lines) - 1
             if header is None:
                 header = lines[0]
                 all_rows.extend(lines[1:])
             else:
                 data_lines = lines[1:] if lines[0] == header else lines
                 all_rows.extend(data_lines)
-            print(f"  Batch {idx + 1}/{len(batches)} done ({len(lines) - 1} rows)")
+            log.info(f"Batch {idx + 1}/{len(batches)}: OK — {rows_in_batch} rows scored")
         except Exception as e:
-            print(f"  ERROR on batch {idx + 1}: {e}")
+            failed += 1
+            gha_error(f"Batch {idx + 1}/{len(batches)} FAILED: {e}")
+
+    gha_endgroup()
 
     if header is None:
+        gha_error("All Gemini batches failed — falling back to label-based scores only.")
         return None
 
+    if failed:
+        gha_warning(f"{failed}/{len(batches)} Gemini batches failed — those issues will use label-based scores.")
+
     combined = "\n".join([header] + all_rows)
-    print(f"Gemini analysis complete — {len(all_rows)} rows scored")
+    gha_notice(f"Gemini done: {len(all_rows)}/{len(issues)} issues scored ({failed} batch failures)")
     return combined
 
 
@@ -376,18 +416,20 @@ def main():
     else:
         active_repos = WATCHED_REPOS
 
-    print(f"Loaded {len(seen)} previously seen issues")
-    print(f"Checking {len(active_repos)}/{len(WATCHED_REPOS)} repos (filtered to user areas)...\n")
+    log.info(f"Previously seen issues: {len(seen)}")
+    log.info(f"Active repos: {len(active_repos)}/{len(WATCHED_REPOS)} (filtered to user areas)")
+    skipped = [f"{r['owner']}/{r['repo']}" for r in WATCHED_REPOS if r not in active_repos]
+    if skipped:
+        log.info(f"Skipped repos (no user area match): {', '.join(skipped)}")
 
+    gha_group(f"Scraping {len(active_repos)} repos")
     for config in active_repos:
         owner = config["owner"]
         repo = config["repo"]
         repo_key = f"{owner}/{repo}"
         for label in config["labels"]:
-            print(f"Checking {repo_key} — label: '{label}'")
             issues = fetch_issues(owner, repo, label, token)
-            print(f"  Found {len(issues)} open issue(s)")
-
+            new_count = 0
             for issue in issues:
                 if "pull_request" in issue:
                     continue
@@ -405,36 +447,49 @@ def main():
                         "number": issue["number"],
                         "difficulty": get_label_difficulty(labels),
                     })
-                    print(f"  🆕 NEW: #{issue['number']} — {issue['title']}")
+                    new_count += 1
+            if new_count:
+                log.info(f"{repo_key} [{label}]: {len(issues)} open, {new_count} new")
+    gha_endgroup()
 
-    print(f"\n{'='*50}")
-    print(f"Total new issues found: {len(new_issues)}")
+    gha_notice(f"Scraping complete — {len(new_issues)} new issues across {len(active_repos)} repos")
 
     if not new_issues:
-        print("No new issues. No email sent.")
+        gha_notice("No new issues found. No emails sent.")
         save_seen_issues(seen)
-        print("Saved seen issues list.")
         return
 
     raw_csv = analyze_with_gemini(new_issues)
     gemini_scores = parse_gemini_csv(raw_csv) if raw_csv else {}
+    log.info(f"Gemini scored {len(gemini_scores)}/{len(new_issues)} issues")
 
+    gha_group("Sending emails")
+    email_results = []
     for user in USER_CONFIGS:
         filtered = filter_issues_for_user(new_issues, user, gemini_scores)
         name = user.get("name", user["email"])
-        print(f"\nUser {name}: {len(filtered)} issues matched (difficulty {user.get('difficulty_min',1)}-{user.get('difficulty_max',10)}, areas: {user.get('areas',[])})")
+        diff_range = f"{user.get('difficulty_min',1)}-{user.get('difficulty_max',10)}"
+        log.info(f"{name} <{user['email']}>: {len(filtered)} issues matched (difficulty {diff_range})")
 
         if not filtered:
-            print(f"  No matching issues — skipping email.")
+            gha_warning(f"{name}: no issues matched filters — skipping email")
+            email_results.append(f"  ⚠ {name} ({user['email']}): no matches")
             continue
 
         user_csv = build_user_csv(filtered, gemini_scores)
         html = build_email_html(filtered, gemini_scores, user_name=user.get("name"), total_found=len(new_issues))
         subject = f"🚀 {len(filtered)} OSS issue{'s' if len(filtered) > 1 else ''} matched for you!"
-        send_email(subject, html, recipient=user["email"], csv_attachment=user_csv)
+        ok = send_email(subject, html, recipient=user["email"], csv_attachment=user_csv)
+        if ok:
+            email_results.append(f"  ✓ {name} ({user['email']}): {len(filtered)} issues sent")
+        else:
+            email_results.append(f"  ✗ {name} ({user['email']}): email failed")
+    gha_endgroup()
+
+    gha_notice("Run summary:\n" + "\n".join(email_results))
 
     save_seen_issues(seen)
-    print("\nSaved seen issues list.")
+    log.info("Seen issues list saved.")
 
 
 if __name__ == "__main__":
