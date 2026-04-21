@@ -37,7 +37,6 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
           USER_CONFIGS: ${{ vars.USER_CONFIGS }}
-          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           NOTIFY_NAME: ${{ vars.NOTIFY_NAME }}
           MAX_ISSUES: ${{ vars.MAX_ISSUES }}
           DIFFICULTY_MIN: ${{ vars.DIFFICULTY_MIN }}

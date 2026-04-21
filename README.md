@@ -104,6 +104,7 @@ Add each of these:
 | `SMTP_USERNAME` | The Gmail address you're sending from (e.g. `you@gmail.com`) |
 | `SMTP_PASSWORD` | The 16-char app password from step 2 |
 | `GEMINI_API_KEY` | The key from step 4 |
+| `GEMINI_MODEL` | e.g. `gemini-2.5-flash` (optional, default: `gemini-2.0-flash`) |
 | `GH_TOKEN` | The token from step 3 |
 | `NOTIFY_EMAIL` | Your receiving email — only needed if you skip step 6 below |
 
@@ -183,7 +184,7 @@ The `NOTIFY_EMAIL` secret from step 5 is used as the recipient.
 
 ### 7. (Optional) Change the Gemini model
 
-Add a variable `GEMINI_MODEL` = `gemini-2.5-flash` for better analysis quality.
+Add a **secret** `GEMINI_MODEL` = `gemini-2.5-flash` for better analysis quality.
 Default is `gemini-2.0-flash`. Both are free tier — cron uses only 6 requests/day, well within limits.
 
 ---
