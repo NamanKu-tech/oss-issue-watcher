@@ -127,13 +127,11 @@ def get_label_difficulty(labels):
     return min(difficulties) if difficulties else 4
 
 
-def analyze_with_gemini(issues):
-    """Send top-50 issues to Gemini. Returns raw CSV string or None."""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print("GEMINI_API_KEY not set — skipping analysis.")
-        return None
+GEMINI_BATCH_SIZE = 150
 
+
+def _call_gemini(api_key, batch):
+    """Single Gemini API call for one batch. Returns cleaned CSV text."""
     issues_json = json.dumps([
         {
             "repo": i["repo"],
@@ -143,13 +141,13 @@ def analyze_with_gemini(issues):
             "labels": ", ".join(i["labels"]),
             "created": i["created"],
         }
-        for i in issues
+        for i in batch
     ], indent=2)
 
     prompt = GEMINI_PROMPT.format(issues_json=issues_json)
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192},
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 65536},
     }).encode()
 
     url = (
@@ -157,19 +155,51 @@ def analyze_with_gemini(issues):
         f"{GEMINI_MODEL}:generateContent?key={api_key}"
     )
     req = Request(url, data=payload, headers={"Content-Type": "application/json"})
-    try:
-        with urlopen(req) as resp:
-            result = json.loads(resp.read().decode())
-        csv_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-        if csv_text.startswith("```"):
-            csv_text = "\n".join(
-                line for line in csv_text.splitlines() if not line.startswith("```")
-            ).strip()
-        print(f"Gemini analysis complete ({len(csv_text)} chars)")
-        return csv_text
-    except Exception as e:
-        print(f"ERROR calling Gemini: {e}")
+    with urlopen(req) as resp:
+        result = json.loads(resp.read().decode())
+    csv_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+    if csv_text.startswith("```"):
+        csv_text = "\n".join(
+            line for line in csv_text.splitlines() if not line.startswith("```")
+        ).strip()
+    return csv_text
+
+
+def analyze_with_gemini(issues):
+    """Send all issues to Gemini in batches of 150. Returns combined CSV string or None."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("GEMINI_API_KEY not set — skipping analysis.")
         return None
+
+    batches = [issues[i:i + GEMINI_BATCH_SIZE] for i in range(0, len(issues), GEMINI_BATCH_SIZE)]
+    print(f"Sending {len(issues)} issues to Gemini in {len(batches)} batch(es)...")
+
+    header = None
+    all_rows = []
+
+    for idx, batch in enumerate(batches):
+        try:
+            csv_text = _call_gemini(api_key, batch)
+            lines = [l for l in csv_text.splitlines() if l.strip()]
+            if not lines:
+                continue
+            if header is None:
+                header = lines[0]
+                all_rows.extend(lines[1:])
+            else:
+                data_lines = lines[1:] if lines[0] == header else lines
+                all_rows.extend(data_lines)
+            print(f"  Batch {idx + 1}/{len(batches)} done ({len(lines) - 1} rows)")
+        except Exception as e:
+            print(f"  ERROR on batch {idx + 1}: {e}")
+
+    if header is None:
+        return None
+
+    combined = "\n".join([header] + all_rows)
+    print(f"Gemini analysis complete — {len(all_rows)} rows scored")
+    return combined
 
 
 def parse_gemini_csv(csv_text):
@@ -217,7 +247,7 @@ def filter_issues_for_user(issues, user, gemini_scores):
 
         filtered.append({**issue, "final_score": score})
 
-    filtered.sort(key=lambda i: i["final_score"], reverse=True)
+    filtered.sort(key=lambda i: (i["final_score"], i["created"]), reverse=True)
     return filtered[:max_issues]
 
 
@@ -336,10 +366,20 @@ def main():
     seen = load_seen_issues()
     new_issues = []
 
-    print(f"Loaded {len(seen)} previously seen issues")
-    print(f"Checking {len(WATCHED_REPOS)} repos...\n")
+    # Only scrape repos relevant to at least one user's area preferences
+    all_user_areas = {a.lower() for user in USER_CONFIGS for a in user.get("areas", [])}
+    if all_user_areas:
+        active_repos = [
+            r for r in WATCHED_REPOS
+            if not r.get("areas") or any(a.lower() in all_user_areas for a in r["areas"])
+        ]
+    else:
+        active_repos = WATCHED_REPOS
 
-    for config in WATCHED_REPOS:
+    print(f"Loaded {len(seen)} previously seen issues")
+    print(f"Checking {len(active_repos)}/{len(WATCHED_REPOS)} repos (filtered to user areas)...\n")
+
+    for config in active_repos:
         owner = config["owner"]
         repo = config["repo"]
         repo_key = f"{owner}/{repo}"
@@ -376,8 +416,7 @@ def main():
         print("Saved seen issues list.")
         return
 
-    top_50 = sorted(new_issues, key=lambda i: i["created"], reverse=True)[:50]
-    raw_csv = analyze_with_gemini(top_50)
+    raw_csv = analyze_with_gemini(new_issues)
     gemini_scores = parse_gemini_csv(raw_csv) if raw_csv else {}
 
     for user in USER_CONFIGS:
