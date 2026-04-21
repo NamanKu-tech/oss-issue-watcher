@@ -132,7 +132,36 @@ Create one variable named `USER_CONFIGS` with a JSON array — one object per re
 
 Add more objects to the array for more recipients — each gets a filtered email based on their own prefs.
 
-**Available areas:** `Java` · `SRE` · `Kubernetes` · `Observability` · `Testing` · `Databases` · `Security` · `Backend` · `Frontend` · `Messaging` · `Streaming` · `Build` · `Mobile` · `Python` · `IaC` · `Search`
+**All supported areas:**
+
+| Area | What's covered |
+| --- | --- |
+| `Java` | Any Java repo (broadest filter — catches everything) |
+| `Spring` | spring-boot, spring-framework, spring-kafka |
+| `Backend` | quarkus, micronaut, helidon, vert.x, netty, armeria, dropwizard, grpc-java, resilience4j |
+| `Kotlin` | ktor |
+| `Messaging` | apache/kafka, kafka-ui, akhq, apache/pulsar, apache/dubbo |
+| `Streaming` | apache/flink, apache/beam, debezium |
+| `Testing` | testcontainers-java, mockito, wiremock, junit5, assertj, allure2 |
+| `Security` | keycloak, jans, zaproxy, find-sec-bugs, VulnerableApp |
+| `SRE` | grafana, loki, tempo, prometheus, alertmanager, jaeger, opentelemetry, thanos, VictoriaMetrics, kubernetes, cilium, argo-cd, argo-workflows, istio, helm, terraform, skywalking, micrometer, graylog2 |
+| `Observability` | grafana, loki, tempo, prometheus, jaeger, opentelemetry, thanos, VictoriaMetrics, skywalking, micrometer, cortex, graylog2 |
+| `Kubernetes` | kubernetes, ingress-nginx, cilium, argo-workflows, argo-cd, istio, helm, jib |
+| `IaC` | terraform |
+| `Databases` | elasticsearch, OpenSearch, questdb, dbeaver, doris, shardingsphere, crate, hazelcast, vespa, lettuce, liquibase, flyway, OpenMetadata |
+| `Search` | elasticsearch, OpenSearch, vespa |
+| `Workflow` | kestra, camunda |
+| `Cloud Native` | nacos, Sentinel |
+| `Distributed` | seata |
+| `Build` | gradle, bazel, jib, spotbugs, pmd, checker-framework |
+| `Tools` | dbeaver, opengrok |
+| `API` | openapi-generator, mapstruct |
+| `Data` | OpenRefine |
+| `Frontend` | react, next.js |
+| `JavaScript` | react, next.js, nest |
+| `Python` | fastapi, flask |
+| `Mobile` | AntennaPod, NewPipe |
+| `Android` | AntennaPod, NewPipe |
 
 > **Tip:** Set `difficulty_min` and `difficulty_max` to the same number for an exact level only (e.g. both `4` = only `help wanted` issues). Set a range like `1–7` to get everything up to that difficulty.
 
