@@ -1,3 +1,5 @@
+import csv
+import io
 import os
 import json
 import smtplib
@@ -13,7 +15,59 @@ from urllib.parse import quote
 with open(os.path.join(os.path.dirname(__file__), "repos.json")) as _f:
     WATCHED_REPOS = json.load(_f)
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+_raw_user_configs = os.environ.get("USER_CONFIGS", "")
+if _raw_user_configs:
+    USER_CONFIGS = json.loads(_raw_user_configs)
+else:
+    # Fallback: single user from individual env vars
+    USER_CONFIGS = [{
+        "email": os.environ.get("NOTIFY_EMAIL") or "namanworkie@gmail.com",
+        "name": os.environ.get("NOTIFY_NAME") or "User",
+        "max_issues": int(os.environ.get("MAX_ISSUES") or 5),
+        "difficulty_min": int(os.environ.get("DIFFICULTY_MIN") or 1),
+        "difficulty_max": int(os.environ.get("DIFFICULTY_MAX") or 7),
+        "areas": [a.strip() for a in (os.environ.get("AREAS") or "").split(",") if a.strip()] or [],
+    }]
+
+# Build repo → areas lookup from repos.json
+REPO_AREAS = {f"{r['owner']}/{r['repo']}": r.get("areas", []) for r in WATCHED_REPOS}
+
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash"
+
+# Maps GitHub label text → difficulty level 1-10 (from open_source_tags_scraped_difficulty)
+LABEL_DIFFICULTY = {
+    # L1 — first-timer only
+    "good first issue": 1, "first-timers-only": 1, "good-first-pr": 1,
+    "good-first-contribution": 1, "first time contributor": 1,
+    "status: first-timers-only": 1, "status: ideal-for-contribution": 1,
+    "status: ideal-for-user-contribution": 1, "info: good first issue": 1,
+    "Good First Issue": 1, "Good first issue": 1, "good first issue 👍": 1,
+    # L2 — beginner-friendly
+    "beginner": 2, "beginner-friendly": 2, "starter": 2,
+    "low-hanging-fruit": 2, "easy": 2,
+    # L3 — documentation
+    "documentation": 3, "docs": 3, "examples": 3, "readme": 3,
+    # L4 — help wanted / up for grabs
+    "help wanted": 4, "up-for-grabs": 4, "up for grabs": 4,
+    "contributions-welcome": 4, "contributions welcome": 4,
+    "accepting-prs": 4, "please contribute": 4,
+    "status: good-first-issue": 4, "s: pull request welcome": 4,
+    "starter task": 4, "type/good-first-issue": 4,
+    # L5 — hacktoberfest
+    "hacktoberfest": 5, "hacktoberfest-accepted": 5, "good-first-project": 5,
+    # L6 — bug / enhancement
+    "bug": 6, "enhancement": 6, "feature request": 6, "question": 6,
+    # L7 — refactor / tech debt
+    "refactoring": 7, "tech-debt": 7, "cleanup": 7, "code-quality": 7,
+    # L8 — triage
+    "needs-triage": 8, "needs-investigation": 8,
+    # L9 — performance / security
+    "performance": 9, "performance-boost": 9, "security": 9,
+    "vulnerability": 9, "memory-leak": 9,
+    # L10 — core / architecture
+    "core": 10, "internals": 10, "breaking-change": 10,
+    "RFC": 10, "major-feature": 10, "expert-needed": 10,
+}
 
 GEMINI_PROMPT = """You are an expert open source contributor advisor helping a backend Java/SRE developer find the best issues to contribute to.
 
@@ -43,13 +97,9 @@ def fetch_issues(owner, repo, label, token=None):
         f"https://api.github.com/repos/{owner}/{repo}/issues"
         f"?labels={quote(label, safe='')}&state=open&sort=created&direction=desc&per_page=20"
     )
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "oss-issue-watcher",
-    }
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "oss-issue-watcher"}
     if token:
         headers["Authorization"] = f"token {token}"
-
     try:
         req = Request(url, headers=headers)
         with urlopen(req) as resp:
@@ -71,8 +121,14 @@ def save_seen_issues(seen, filepath="seen_issues.json"):
         json.dump(sorted(list(seen)), f)
 
 
+def get_label_difficulty(labels):
+    """Return lowest (easiest) difficulty from issue labels, defaulting to 4."""
+    difficulties = [LABEL_DIFFICULTY[l] for l in labels if l in LABEL_DIFFICULTY]
+    return min(difficulties) if difficulties else 4
+
+
 def analyze_with_gemini(issues):
-    """Send issues to Gemini for analysis. Returns CSV string or None."""
+    """Send top-50 issues to Gemini. Returns raw CSV string or None."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("GEMINI_API_KEY not set — skipping analysis.")
@@ -105,11 +161,9 @@ def analyze_with_gemini(issues):
         with urlopen(req) as resp:
             result = json.loads(resp.read().decode())
         csv_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-        # Strip markdown fences if the model adds them anyway
         if csv_text.startswith("```"):
             csv_text = "\n".join(
-                line for line in csv_text.splitlines()
-                if not line.startswith("```")
+                line for line in csv_text.splitlines() if not line.startswith("```")
             ).strip()
         print(f"Gemini analysis complete ({len(csv_text)} chars)")
         return csv_text
@@ -118,76 +172,115 @@ def analyze_with_gemini(issues):
         return None
 
 
-def send_email(subject, html_body, csv_attachment=None):
-    sender = os.environ.get("SMTP_USERNAME", "namanmahit@gmail.com")
-    password = os.environ.get("SMTP_PASSWORD")
-    recipients_raw = os.environ.get("NOTIFY_EMAIL", "namanworkie@gmail.com")
-    recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
-
-    if not all([sender, password, recipients]):
-        print("ERROR: Missing email configuration. Set SMTP_USERNAME, SMTP_PASSWORD, NOTIFY_EMAIL.")
-        return False
-
-    msg = MIMEMultipart("mixed")
-    msg["Subject"] = subject
-    msg["From"] = f"OSS Issue Watcher <{sender}>"
-    msg["To"] = ", ".join(recipients)
-    msg.attach(MIMEText(html_body, "html"))
-
-    if csv_attachment:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(csv_attachment.encode())
-        encoders.encode_base64(part)
-        filename = f"issues_analysis_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.csv"
-        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-        msg.attach(part)
-
+def parse_gemini_csv(csv_text):
+    """Parse Gemini CSV into {url: {score, what_to_do}} dict."""
+    result = {}
+    if not csv_text:
+        return result
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(sender, password)
-            server.sendmail(sender, recipients, msg.as_string())
-        print(f"Email sent to {', '.join(recipients)}")
-        return True
+        reader = csv.DictReader(io.StringIO(csv_text))
+        for row in reader:
+            url = row.get("url", "").strip()
+            if not url:
+                continue
+            try:
+                score = int(float(row.get("score", 0)))
+            except (ValueError, TypeError):
+                score = 0
+            result[url] = {
+                "score": score,
+                "what_to_do": row.get("what_to_do", "").strip(),
+            }
     except Exception as e:
-        print(f"ERROR sending email: {e}")
-        return False
+        print(f"ERROR parsing Gemini CSV: {e}")
+    return result
 
 
-def build_email_html(new_issues, has_csv=False):
+def filter_issues_for_user(issues, user, gemini_scores):
+    """Filter and rank issues per user's difficulty range, areas, and max_issues cap."""
+    diff_min = user.get("difficulty_min", 1)
+    diff_max = user.get("difficulty_max", 10)
+    user_areas = [a.lower() for a in user.get("areas", [])]
+    max_issues = user.get("max_issues", 5)
+
+    filtered = []
+    for issue in issues:
+        score = gemini_scores.get(issue["url"], {}).get("score") or issue["difficulty"]
+
+        if not (diff_min <= score <= diff_max):
+            continue
+
+        if user_areas:
+            issue_areas = [a.lower() for a in issue.get("areas", [])]
+            if not any(a in issue_areas for a in user_areas):
+                continue
+
+        filtered.append({**issue, "final_score": score})
+
+    filtered.sort(key=lambda i: i["final_score"], reverse=True)
+    return filtered[:max_issues]
+
+
+def build_user_csv(filtered_issues, gemini_scores):
+    """Build a CSV string for a user's filtered issues including Gemini summary."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["repo", "issue_number", "title", "url", "labels", "areas", "created", "score", "what_to_do"])
+    for issue in filtered_issues:
+        g = gemini_scores.get(issue["url"], {})
+        writer.writerow([
+            issue["repo"],
+            issue["number"],
+            issue["title"],
+            issue["url"],
+            ", ".join(issue["labels"]),
+            ", ".join(issue.get("areas", [])),
+            issue["created"],
+            g.get("score") or issue["difficulty"],
+            g.get("what_to_do") or "—",
+        ])
+    return output.getvalue()
+
+
+def build_email_html(filtered_issues, gemini_scores, user_name=None, total_found=0):
     rows = ""
-    for issue in new_issues:
+    for issue in filtered_issues:
         label_badges = " ".join(
-            f'<span style="background:#28a745;color:white;padding:2px 8px;border-radius:12px;font-size:12px;">{l}</span>'
+            f'<span style="background:#28a745;color:white;padding:2px 8px;border-radius:12px;font-size:11px;">{l}</span>'
             for l in issue["labels"]
         )
+        area_badges = " ".join(
+            f'<span style="background:#0366d6;color:white;padding:2px 8px;border-radius:12px;font-size:11px;">{a}</span>'
+            for a in issue.get("areas", [])
+        )
+        score = gemini_scores.get(issue["url"], {}).get("score") or issue["difficulty"]
+        score_color = "#28a745" if score >= 7 else "#e36209" if score >= 4 else "#586069"
+        what_to_do = gemini_scores.get(issue["url"], {}).get("what_to_do", "")
         rows += f"""
         <tr style="border-bottom:1px solid #eee;">
             <td style="padding:12px;">
-                <strong><a href="{issue['url']}" style="color:#0366d6;text-decoration:none;">
-                    {issue['title']}
-                </a></strong><br>
-                <span style="color:#586069;font-size:13px;">{issue['repo']}</span><br>
-                {label_badges}
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                    <span style="background:{score_color};color:white;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600;">
+                        ★ {score}/10
+                    </span>
+                    <strong><a href="{issue['url']}" style="color:#0366d6;text-decoration:none;">{issue['title']}</a></strong>
+                </div>
+                <span style="color:#586069;font-size:12px;">{issue['repo']}</span><br>
+                <div style="margin-top:4px;">{label_badges} {area_badges}</div>
+                {"<p style='color:#444;font-size:12px;margin:6px 0 0;font-style:italic;'>" + what_to_do + "</p>" if what_to_do else ""}
             </td>
-            <td style="padding:12px;color:#586069;font-size:13px;white-space:nowrap;">
+            <td style="padding:12px;color:#586069;font-size:12px;white-space:nowrap;vertical-align:top;">
                 {issue['created']}
             </td>
         </tr>
         """
 
-    attachment_note = (
-        '<p style="color:#0366d6;font-size:13px;background:#f1f8ff;padding:10px;border-radius:6px;">'
-        '📎 Gemini AI analysis attached as CSV — includes difficulty, estimated hours, skills required, SRE relevance, and recommendations.</p>'
-        if has_csv else ""
-    )
-
+    greeting = f"Hi {user_name}," if user_name else "Hi,"
     return f"""
     <html>
     <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;">
-        <h2 style="color:#24292e;">🚀 New Open Source Contribution Opportunities</h2>
-        <p style="color:#586069;">Found {len(new_issues)} new issue(s) matching your watched labels.</p>
-        {attachment_note}
+        <h2 style="color:#24292e;">🚀 Your OSS Issues for Today</h2>
+        <p style="color:#586069;">{greeting} Found <strong>{len(filtered_issues)}</strong> issues matching your preferences (from {total_found} new total). Full analysis attached as CSV.</p>
         <table style="width:100%;border-collapse:collapse;">
             <tr style="background:#f6f8fa;border-bottom:2px solid #e1e4e8;">
                 <th style="padding:10px;text-align:left;">Issue</th>
@@ -196,12 +289,46 @@ def build_email_html(new_issues, has_csv=False):
             {rows}
         </table>
         <p style="color:#586069;font-size:12px;margin-top:20px;">
-            Tip: Comment on the issue quickly to claim it before others do!<br>
-            Sent by <a href="https://github.com">OSS Issue Watcher</a> • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
+            Tip: Comment on the issue quickly to claim it. See <a href="https://github.com/NamanKu-tech/oss-issue-watcher/blob/main/CLAIMING_ISSUES.md">CLAIMING_ISSUES.md</a> for the full workflow.<br>
+            Sent by OSS Issue Watcher • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
         </p>
     </body>
     </html>
     """
+
+
+def send_email(subject, html_body, recipient, csv_attachment=None):
+    sender = os.environ.get("SMTP_USERNAME") or "namanmahit@gmail.com"
+    password = os.environ.get("SMTP_PASSWORD")
+
+    if not all([sender, password, recipient]):
+        print(f"ERROR: Missing email config for {recipient}.")
+        return False
+
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"] = f"OSS Issue Watcher <{sender}>"
+    msg["To"] = recipient
+    msg.attach(MIMEText(html_body, "html"))
+
+    if csv_attachment:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(csv_attachment.encode())
+        encoders.encode_base64(part)
+        filename = f"issues_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.csv"
+        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+        msg.attach(part)
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.sendmail(sender, [recipient], msg.as_string())
+        print(f"Email sent to {recipient}")
+        return True
+    except Exception as e:
+        print(f"ERROR sending email to {recipient}: {e}")
+        return False
 
 
 def main():
@@ -215,41 +342,60 @@ def main():
     for config in WATCHED_REPOS:
         owner = config["owner"]
         repo = config["repo"]
+        repo_key = f"{owner}/{repo}"
         for label in config["labels"]:
-            print(f"Checking {owner}/{repo} — label: '{label}'")
+            print(f"Checking {repo_key} — label: '{label}'")
             issues = fetch_issues(owner, repo, label, token)
             print(f"  Found {len(issues)} open issue(s)")
 
             for issue in issues:
                 if "pull_request" in issue:
                     continue
-
                 issue_id = str(issue["id"])
                 if issue_id not in seen:
                     seen.add(issue_id)
+                    labels = [l["name"] for l in issue.get("labels", [])]
                     new_issues.append({
                         "title": issue["title"],
                         "url": issue["html_url"],
-                        "repo": f"{owner}/{repo}",
-                        "labels": [l["name"] for l in issue.get("labels", [])],
+                        "repo": repo_key,
+                        "labels": labels,
+                        "areas": REPO_AREAS.get(repo_key, []),
                         "created": issue["created_at"][:10],
                         "number": issue["number"],
+                        "difficulty": get_label_difficulty(labels),
                     })
                     print(f"  🆕 NEW: #{issue['number']} — {issue['title']}")
 
     print(f"\n{'='*50}")
     print(f"Total new issues found: {len(new_issues)}")
 
-    if new_issues:
-        csv_data = analyze_with_gemini(new_issues)
-        subject = f"🚀 {len(new_issues)} new OSS contribution opportunity{'s' if len(new_issues) > 1 else ''}!"
-        html = build_email_html(new_issues, has_csv=bool(csv_data))
-        send_email(subject, html, csv_attachment=csv_data)
-    else:
+    if not new_issues:
         print("No new issues. No email sent.")
+        save_seen_issues(seen)
+        print("Saved seen issues list.")
+        return
+
+    top_50 = sorted(new_issues, key=lambda i: i["created"], reverse=True)[:50]
+    raw_csv = analyze_with_gemini(top_50)
+    gemini_scores = parse_gemini_csv(raw_csv) if raw_csv else {}
+
+    for user in USER_CONFIGS:
+        filtered = filter_issues_for_user(new_issues, user, gemini_scores)
+        name = user.get("name", user["email"])
+        print(f"\nUser {name}: {len(filtered)} issues matched (difficulty {user.get('difficulty_min',1)}-{user.get('difficulty_max',10)}, areas: {user.get('areas',[])})")
+
+        if not filtered:
+            print(f"  No matching issues — skipping email.")
+            continue
+
+        user_csv = build_user_csv(filtered, gemini_scores)
+        html = build_email_html(filtered, gemini_scores, user_name=user.get("name"), total_found=len(new_issues))
+        subject = f"🚀 {len(filtered)} OSS issue{'s' if len(filtered) > 1 else ''} matched for you!"
+        send_email(subject, html, recipient=user["email"], csv_attachment=user_csv)
 
     save_seen_issues(seen)
-    print("Saved seen issues list.")
+    print("\nSaved seen issues list.")
 
 
 if __name__ == "__main__":
