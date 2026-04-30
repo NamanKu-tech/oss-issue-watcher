@@ -557,6 +557,10 @@ def main():
 
     raw_csv = analyze_with_ai(new_issues)
     gemini_scores = parse_gemini_csv(raw_csv) if raw_csv else {}
+    if raw_csv:
+        with open("latest_digest.csv", "w") as f:
+            f.write(raw_csv)
+        log.info("latest_digest.csv written (%d bytes)", len(raw_csv))
     log.info(f"AI scored {len(gemini_scores)}/{len(new_issues)} issues")
 
     gha_group("Sending emails")
