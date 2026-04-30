@@ -9,6 +9,8 @@ on:
 jobs:
   check-issues:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repo
@@ -46,6 +48,16 @@ jobs:
           DIFFICULTY_MAX: ${{ vars.DIFFICULTY_MAX }}
           AREAS: ${{ vars.AREAS }}
         run: python check_issues.py
+
+      - name: Commit digest artifacts
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add latest_digest.csv || true
+          git diff --cached --quiet || git commit -m "chore: update digest artifacts [skip ci]"
+          git push || true
 
       - name: Save seen issues
         if: always()
