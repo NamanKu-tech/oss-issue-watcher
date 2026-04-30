@@ -1,5 +1,5 @@
 {
-  "daily": { "date": "", "count": 0 },
-  "monthly": { "month": "", "count": 0 },
-  "forked_repos": []
+  "daily": { "date": "2026-04-30", "count": 1 },
+  "monthly": { "month": "2026-04", "count": 1 },
+  "forked_repos": ["thanos-io/thanos"]
 }
