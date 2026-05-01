@@ -1,5 +1,5 @@
 {
-  "daily": { "date": "2026-04-30", "count": 1 },
-  "monthly": { "month": "2026-04", "count": 1 },
-  "forked_repos": ["thanos-io/thanos"]
+  "daily": { "date": "2026-05-01", "count": 2 },
+  "monthly": { "month": "2026-05", "count": 2 },
+  "forked_repos": ["thanos-io/thanos", "SasanLabs/VulnerableApp"]
 }
